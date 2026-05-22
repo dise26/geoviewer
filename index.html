@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0d1f2d" />
+  <title>GeoViewer Campo</title>
+  <link rel="manifest" href="manifest.json" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <!-- proj4 for coordinate systems -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+
+  <!-- geotiff.js for GeoTIFF support -->
+  <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+
+  <style>
+    :root {
+      --bg: #0d1f2d;
+      --surface: #122333;
+      --panel: #0a1928;
+      --accent: #00e5ff;
+      --accent2: #ff6b35;
+      --success: #00ff88;
+      --warn: #ffcc00;
+      --text: #e0f0ff;
+      --muted: #4a7a99;
+      --border: #1e3a52;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-ui: 'Barlow Condensed', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    #header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+      flex-shrink: 0;
+    }
+    #header h1 {
+      font-family: var(--font-ui);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-transform: uppercase;
+      flex: 1;
+    }
+    #header h1 span { color: var(--text); font-weight: 400; }
+
+    #gps-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 2px;
+      background: var(--border);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      transition: all 0.3s;
+    }
+    #gps-badge.active { background: #003322; color: var(--success); border-color: var(--success); }
+    #gps-badge.searching { background: #332200; color: var(--warn); border-color: var(--warn); animation: pulse 1s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    /* ── MAP AREA ── */
+    #map-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #080f17;
+    }
+
+    /* ── LOAD SCREEN ── */
+    #load-screen {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 500;
+      padding: 32px;
+    }
+
+    .load-icon {
+      width: 80px;
+      height: 80px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1.2s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .load-logo {
+      font-family: var(--font-ui);
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 4px;
+      line-height: 1;
+    }
+    .load-logo span { color: var(--muted); font-weight: 400; }
+
+    .load-subtitle {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 32px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+      max-width: 340px;
+    }
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(0,229,255,0.05);
+    }
+    #drop-zone .dz-icon { font-size: 36px; margin-bottom: 12px; }
+    #drop-zone .dz-title {
+      font-family: var(--font-ui);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      letter-spacing: 1px;
+    }
+    #drop-zone .dz-sub {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+    #drop-zone .dz-formats {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+    .fmt-badge {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      padding: 2px 8px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 2px;
+      letter-spacing: 1px;
+    }
+
+    #file-input { display: none; }
+
+    #load-status {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--warn);
+      text-align: center;
+      min-height: 20px;
+    }
+
+    /* ── TOOLBAR ── */
+    #toolbar {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 400;
+    }
+
+    .tool-btn {
+      width: 44px;
+      height: 44px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tool-btn:hover, .tool-btn.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .tool-btn.danger.active { background: var(--accent2); border-color: var(--accent2); }
+
+    /* ── INFO PANEL ── */
+    #info-panel {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      z-index: 400;
+      transition: transform 0.3s;
+    }
+    #info-panel.collapsed { transform: translateY(calc(100% - 36px)); }
+
+    #info-toggle {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    #info-toggle span {
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    #info-content {
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .info-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .info-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .info-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .info-value.secondary { color: var(--text); font-size: 11px; }
+
+    /* ── MEASUREMENTS PANEL ── */
+    #measure-panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 10px 12px;
+      z-index: 400;
+      min-width: 180px;
+      display: none;
+    }
+    #measure-panel h3 {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    #measure-result {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      color: var(--accent2);
+      font-weight: 700;
+    }
+    #measure-points {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ── POINTS LIST ── */
+    #points-panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 10px 12px;
+      z-index: 400;
+      min-width: 220px;
+      max-height: 60vh;
+      overflow-y: auto;
+      display: none;
+    }
+    #points-panel h3 {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .point-item {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text);
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .point-name { color: var(--accent); font-weight: 700; }
+    .point-coords { color: var(--muted); font-size: 9px; }
+    .point-del { color: var(--accent2); cursor: pointer; font-size: 14px; flex-shrink: 0; }
+
+    #export-btn {
+      margin-top: 10px;
+      width: 100%;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 8px;
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    /* ── COMPASS ── */
+    #compass {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 400;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    #compass-rose {
+      width: 60px;
+      height: 60px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      transition: transform 0.2s;
+    }
+    #compass-heading {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--panel);
+      padding: 2px 8px;
+      border-radius: 2px;
+    }
+
+    /* Leaflet customization */
+    .leaflet-control-zoom { display: none; }
+
+    .user-marker {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid white;
+      box-shadow: 0 0 0 4px rgba(0,229,255,0.3);
+    }
+
+    .point-marker-icon {
+      background: var(--accent2);
+      border: 2px solid white;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      width: 16px;
+      height: 16px;
+    }
+
+    .leaflet-popup-content-wrapper {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .leaflet-popup-tip { background: var(--panel); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); }
+
+    #load-more-btn {
+      margin-top: 8px;
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      border-radius: 2px;
+      width: 100%;
+      max-width: 340px;
+      transition: all 0.2s;
+    }
+    #load-more-btn:hover { background: rgba(0,229,255,0.1); }
+
+    .toast {
+      position: fixed;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 8px 16px;
+      border-radius: 2px;
+      z-index: 9999;
+      animation: fadeInOut 2.5s forwards;
+      white-space: nowrap;
+    }
+    @keyframes fadeInOut {
+      0%{opacity:0;top:50px} 15%{opacity:1;top:60px} 80%{opacity:1} 100%{opacity:0}
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <h1>GEO<span>VIEWER</span></h1>
+  <div id="gps-badge">GPS INACTIVO</div>
+</div>
+
+<!-- MAP -->
+<div id="map-container">
+  <div id="map"></div>
+
+  <!-- LOAD SCREEN -->
+  <div id="load-screen">
+    <div class="load-logo">GEO<span>V</span></div>
+    <div class="load-subtitle">Visor de campo · GeoPDF · GeoTIFF</div>
+
+    <div id="drop-zone">
+      <div class="dz-icon">🗺️</div>
+      <div class="dz-title">CARGAR MAPA</div>
+      <div class="dz-sub">Toca para seleccionar archivo</div>
+      <div class="dz-formats">
+        <span class="fmt-badge">GeoPDF</span>
+        <span class="fmt-badge">GeoTIFF</span>
+        <span class="fmt-badge">TIF</span>
+      </div>
+    </div>
+    <button id="load-more-btn" style="display:none">+ CARGAR OTRO MAPA</button>
+    <div id="load-status"></div>
+    <div class="load-icon" id="load-spinner"></div>
+    <input type="file" id="file-input" accept=".pdf,.tif,.tiff" />
+  </div>
+
+  <!-- TOOLBAR -->
+  <div id="toolbar">
+    <button class="tool-btn" id="btn-gps" title="Centrar GPS">📍</button>
+    <button class="tool-btn" id="btn-point" title="Tomar punto">📌</button>
+    <button class="tool-btn" id="btn-measure" title="Medir distancia">📏</button>
+    <button class="tool-btn" id="btn-compass" title="Brújula">🧭</button>
+    <button class="tool-btn" id="btn-points-list" title="Lista de puntos">📋</button>
+    <button class="tool-btn" id="btn-basemap" title="Cambiar mapa base">🛰️</button>
+    <button class="tool-btn danger" id="btn-load" title="Cargar mapa">📂</button>
+  </div>
+
+  <!-- BASEMAP SELECTOR -->
+  <div id="basemap-panel" style="display:none;position:absolute;right:64px;top:12px;background:var(--panel);border:1px solid var(--border);border-radius:4px;z-index:400;overflow:hidden;min-width:140px;">
+    <div style="font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:2px;color:var(--muted);padding:6px 12px;border-bottom:1px solid var(--border);text-transform:uppercase;">Mapa Base</div>
+    <div id="basemap-list"></div>
+  </div>
+
+  <!-- COMPASS -->
+  <div id="compass">
+    <div id="compass-rose">🧭</div>
+    <div id="compass-heading">0°</div>
+  </div>
+
+  <!-- MEASURE PANEL -->
+  <div id="measure-panel">
+    <h3>Medición</h3>
+    <div id="measure-result">— m</div>
+    <div id="measure-points">Toca el mapa para medir</div>
+    <button onclick="clearMeasure()" style="margin-top:8px;width:100%;background:transparent;border:1px solid var(--accent2);color:var(--accent2);padding:4px;font-family:var(--font-ui);font-size:11px;cursor:pointer;border-radius:2px;">LIMPIAR</button>
+  </div>
+
+  <!-- POINTS PANEL -->
+  <div id="points-panel">
+    <h3>Puntos guardados</h3>
+    <div id="points-list"></div>
+    <button id="export-btn" onclick="exportPoints()">⬇ EXPORTAR CSV</button>
+  </div>
+
+  <div id="info-panel" class="collapsed">
+    <div id="info-toggle">
+      <span>Coordenadas GPS · UTM</span>
+      <span id="toggle-arrow">▲</span>
+    </div>
+    <div id="info-content">
+      <div class="info-item" style="grid-column:1/-1">
+        <div class="info-label">Zona UTM</div>
+        <div class="info-value" id="val-zone">—</div>
+      </div>
+      <div class="info-item" style="grid-column:1/-1">
+        <div class="info-label">Este (X)</div>
+        <div class="info-value" id="val-easting">— m</div>
+      </div>
+      <div class="info-item" style="grid-column:1/-1">
+        <div class="info-label">Norte (Y)</div>
+        <div class="info-value" id="val-northing">— m</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Altitud</div>
+        <div class="info-value secondary" id="val-alt">— m</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Precisión</div>
+        <div class="info-value secondary" id="val-acc">— m</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Rumbo</div>
+        <div class="info-value secondary" id="val-heading">—°</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Velocidad</div>
+        <div class="info-value secondary" id="val-speed">— km/h</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MAP INIT ──
+const map = L.map('map', {
+  center: [14.0, -88.0],
+  zoom: 8,
+  zoomControl: false,
+  attributionControl: false
+});
+
+// ── BASEMAPS ──
+const basemaps = {
+  'Satélite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 22, attribution: 'Esri' }),
+  'Topo': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 22, attribution: 'Esri' }),
+  'OSM': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22, attribution: 'OSM' }),
+  'Oscuro': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 22, attribution: 'Carto' }),
+};
+let activeBasemap = basemaps['Satélite'];
+activeBasemap.addTo(map);
+
+// ── STATE ──
+let userMarker = null;
+let userCircle = null;
+let gpsActive = false;
+let watchId = null;
+let currentPos = null;
+let mapLoaded = false;
+let points = [];
+let pointCount = 0;
+let measureMode = false;
+let measurePoints = [];
+let measureLine = null;
+let compassActive = false;
+let panelOpen = false;
+let pointsOpen = false;
+let activeTool = null;
+
+// ── UTM CONVERSION ──
+function latLonToUTM(lat, lon) {
+  const zoneNum = Math.floor((lon + 180) / 6) + 1;
+  const hemi = lat >= 0 ? 'N' : 'S';
+  const epsg = lat >= 0 ? 32600 + zoneNum : 32700 + zoneNum;
+  const proj = `+proj=utm +zone=${zoneNum} +${lat >= 0 ? 'north' : 'south'} +datum=WGS84 +units=m +no_defs`;
+  const [easting, northing] = proj4('EPSG:4326', proj, [lon, lat]);
+  return { zone: `${zoneNum}${hemi}`, easting: Math.round(easting), northing: Math.round(northing), epsg };
+}
+function startGPS() {
+  const badge = document.getElementById('gps-badge');
+  badge.textContent = 'BUSCANDO...';
+  badge.className = 'searching';
+
+  if (!navigator.geolocation) {
+    badge.textContent = 'NO DISPONIBLE';
+    return;
+  }
+
+  watchId = navigator.geolocation.watchPosition(onGPS, onGPSError, {
+    enableHighAccuracy: true,
+    maximumAge: 2000,
+    timeout: 10000
+  });
+}
+
+function onGPS(pos) {
+  const { latitude: lat, longitude: lon, altitude, accuracy, heading, speed } = pos.coords;
+  currentPos = { lat, lon, altitude, accuracy, heading, speed };
+  gpsActive = true;
+
+  const badge = document.getElementById('gps-badge');
+  badge.textContent = 'GPS ✓';
+  badge.className = 'active';
+
+  // Convert to UTM
+  const utm = latLonToUTM(lat, lon);
+
+  // Update info panel with UTM
+  document.getElementById('val-zone').textContent = `${utm.zone} (EPSG:${utm.epsg})`;
+  document.getElementById('val-easting').textContent = utm.easting.toLocaleString('es') + ' m E';
+  document.getElementById('val-northing').textContent = utm.northing.toLocaleString('es') + ' m N';
+  document.getElementById('val-alt').textContent = altitude ? altitude.toFixed(1) + ' m' : '— m';
+  document.getElementById('val-acc').textContent = accuracy ? '±' + accuracy.toFixed(0) + ' m' : '— m';
+  document.getElementById('val-heading').textContent = heading ? heading.toFixed(0) + '°' : '—°';
+  document.getElementById('val-speed').textContent = speed ? (speed * 3.6).toFixed(1) + ' km/h' : '0 km/h';
+
+  // Update GPS badge with zone
+  badge.textContent = `GPS ✓ · Z${utm.zone}`;
+
+  // Marker
+  const userIcon = L.divIcon({ className: '', html: '<div class="user-marker"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
+  if (!userMarker) {
+    userMarker = L.marker([lat, lon], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+    userCircle = L.circle([lat, lon], { radius: accuracy, color: '#00e5ff', fillColor: '#00e5ff', fillOpacity: 0.05, weight: 1 }).addTo(map);
+    if (!mapLoaded) map.setView([lat, lon], 15);
+  } else {
+    userMarker.setLatLng([lat, lon]);
+    userCircle.setLatLng([lat, lon]);
+    userCircle.setRadius(accuracy);
+  }
+
+  // Compass
+  if (heading !== null && compassActive) {
+    document.getElementById('compass-rose').style.transform = `rotate(${-heading}deg)`;
+    document.getElementById('compass-heading').textContent = heading.toFixed(0) + '°';
+    document.getElementById('val-heading').textContent = heading.toFixed(0) + '°';
+  }
+}
+
+function onGPSError(err) {
+  const badge = document.getElementById('gps-badge');
+  badge.textContent = 'ERROR GPS';
+  badge.className = '';
+}
+
+// ── GEOTIFF LOADER ──
+async function loadGeoTIFF(file) {
+  setStatus('Procesando GeoTIFF...');
+  showSpinner(true);
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+    const image = await tiff.getImage();
+
+    const bbox = image.getBoundingBox();
+    const width = image.getWidth();
+    const height = image.getHeight();
+
+    // Read raster data
+    const rasters = await image.readRasters({ interleave: true });
+    const samplesPerPixel = image.getSamplesPerPixel();
+
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(width, height);
+
+    for (let i = 0; i < width * height; i++) {
+      if (samplesPerPixel >= 3) {
+        imgData.data[i * 4 + 0] = rasters[i * samplesPerPixel + 0];
+        imgData.data[i * 4 + 1] = rasters[i * samplesPerPixel + 1];
+        imgData.data[i * 4 + 2] = rasters[i * samplesPerPixel + 2];
+        imgData.data[i * 4 + 3] = samplesPerPixel === 4 ? rasters[i * samplesPerPixel + 3] : 255;
+      } else {
+        const v = rasters[i];
+        imgData.data[i * 4 + 0] = v;
+        imgData.data[i * 4 + 1] = v;
+        imgData.data[i * 4 + 2] = v;
+        imgData.data[i * 4 + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
+
+    L.imageOverlay(dataUrl, bounds, { opacity: 1 }).addTo(map);
+    map.fitBounds(bounds);
+    mapLoaded = true;
+    hideLoadScreen();
+    showToast('✓ GeoTIFF cargado');
+
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+    console.error(e);
+  }
+  showSpinner(false);
+}
+
+// ── GEOPDF LOADER ──
+async function loadGeoPDF(file) {
+  setStatus('Procesando GeoPDF...');
+  showSpinner(true);
+
+  try {
+    // Load PDF.js from CDN dynamically
+    if (!window.pdfjsLib) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+
+    // Try to extract geo metadata from PDF structure
+    let geoData = null;
+    try {
+      geoData = await extractGeoPDFMetadata(pdf, page);
+    } catch(e) { console.warn('GeoPDF metadata extraction failed:', e); }
+
+    // Render page to canvas
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const dataUrl = canvas.toDataURL('image/png');
+
+    if (geoData && geoData.bounds) {
+      L.imageOverlay(dataUrl, geoData.bounds, { opacity: 1 }).addTo(map);
+      map.fitBounds(geoData.bounds);
+      mapLoaded = true;
+      hideLoadScreen();
+      showToast('✓ GeoPDF cargado con georreferenciación');
+    } else {
+      // Fallback: show without georef, ask user
+      setStatus('⚠ No se detectó georreferenciación. Mostrando mapa sin posición GPS.');
+      const tempBounds = map.getBounds();
+      L.imageOverlay(dataUrl, tempBounds, { opacity: 0.85 }).addTo(map);
+      mapLoaded = true;
+      hideLoadScreen();
+      showToast('⚠ PDF sin georref. embebida');
+    }
+
+  } catch(e) {
+    setStatus('Error al leer PDF: ' + e.message);
+    console.error(e);
+  }
+  showSpinner(false);
+}
+
+async function extractGeoPDFMetadata(pdf, page) {
+  // ArcGIS GeoPDF stores LGIDict in the page dictionary
+  // We try to extract bounds from viewport/mediabox and geo metadata
+  const metadata = await pdf.getMetadata().catch(() => null);
+
+  // Try OGC GeoPDF / TerraGo structure via raw data
+  // Most ArcGIS GeoPDFs embed coordinates in the page's LGIDict
+  // pdf.js exposes some of this via getViewport transforms
+
+  // Basic extraction: use the /MediaBox and try to find /LGIDict
+  // For ArcGIS exports, coordinates are often in the XMP metadata
+  let xmpGeo = null;
+  if (metadata && metadata.contentDispositionFilename) {
+    // parse
+  }
+
+  // Try viewport-based heuristic: not reliable without real LGIDict access
+  // Return null to indicate we couldn't extract
+  return null;
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// ── FILE HANDLING ──
+async function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'pdf') {
+    await loadGeoPDF(file);
+  } else if (ext === 'tif' || ext === 'tiff') {
+    await loadGeoTIFF(file);
+  } else {
+    setStatus('Formato no soportado. Usa GeoPDF o GeoTIFF.');
+  }
+}
+
+document.getElementById('drop-zone').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+
+document.getElementById('file-input').addEventListener('change', (e) => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+document.getElementById('drop-zone').addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.add('dragover');
+});
+document.getElementById('drop-zone').addEventListener('dragleave', (e) => {
+  e.currentTarget.classList.remove('dragover');
+});
+document.getElementById('drop-zone').addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// ── TOOLBAR BUTTONS ──
+document.getElementById('btn-gps').addEventListener('click', () => {
+  if (currentPos) map.setView([currentPos.lat, currentPos.lon], 17);
+  else startGPS();
+});
+
+document.getElementById('btn-load').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+
+document.getElementById('btn-point').addEventListener('click', () => {
+  if (!gpsActive && !measureMode) {
+    showToast('Activa el GPS primero');
+    return;
+  }
+  // In GPS mode: save current position. In map tap mode: let user tap
+  if (currentPos) {
+    savePoint(currentPos.lat, currentPos.lon);
+  } else {
+    showToast('Toca el mapa para colocar un punto');
+    activeTool = 'point';
+    document.getElementById('btn-point').classList.add('active');
+  }
+});
+
+document.getElementById('btn-measure').addEventListener('click', () => {
+  measureMode = !measureMode;
+  document.getElementById('btn-measure').classList.toggle('active', measureMode);
+  document.getElementById('measure-panel').style.display = measureMode ? 'block' : 'none';
+  if (!measureMode) clearMeasure();
+  else showToast('Toca el mapa para medir distancias');
+});
+
+document.getElementById('btn-compass').addEventListener('click', () => {
+  compassActive = !compassActive;
+  document.getElementById('btn-compass').classList.toggle('active', compassActive);
+  document.getElementById('compass').style.display = compassActive ? 'flex' : 'none';
+
+  if (compassActive && window.DeviceOrientationEvent) {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(p => {
+        if (p === 'granted') window.addEventListener('deviceorientation', onOrientation);
+      });
+    } else {
+      window.addEventListener('deviceorientation', onOrientation);
+    }
+  } else {
+    window.removeEventListener('deviceorientation', onOrientation);
+  }
+});
+
+document.getElementById('btn-points-list').addEventListener('click', () => {
+  pointsOpen = !pointsOpen;
+  document.getElementById('btn-points-list').classList.toggle('active', pointsOpen);
+  document.getElementById('points-panel').style.display = pointsOpen ? 'block' : 'none';
+  renderPointsList();
+});
+
+// ── MAP CLICK ──
+map.on('click', (e) => {
+  if (measureMode) {
+    addMeasurePoint(e.latlng);
+    return;
+  }
+  if (activeTool === 'point') {
+    savePoint(e.latlng.lat, e.latlng.lng);
+    activeTool = null;
+    document.getElementById('btn-point').classList.remove('active');
+    return;
+  }
+});
+
+// ── POINTS ──
+function savePoint(lat, lon) {
+  pointCount++;
+  const name = 'PT-' + String(pointCount).padStart(3, '0');
+  const utm = latLonToUTM(lat, lon);
+  const point = { name, lat, lon, easting: utm.easting, northing: utm.northing, zone: utm.zone, time: new Date().toISOString() };
+  points.push(point);
+
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="background:#ff6b35;border:2px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:16px;height:16px;"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 16]
+  });
+
+  L.marker([lat, lon], { icon })
+    .addTo(map)
+    .bindPopup(`<b style="color:#ff6b35">${name}</b><br>Zona: ${utm.zone}<br>E: ${utm.easting.toLocaleString('es')} m<br>N: ${utm.northing.toLocaleString('es')} m`);
+
+  showToast(`📌 ${name} guardado`);
+  if (pointsOpen) renderPointsList();
+}
+
+function renderPointsList() {
+  const list = document.getElementById('points-list');
+  if (points.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:10px;font-family:var(--font-mono)">Sin puntos guardados</div>';
+    return;
+  }
+  list.innerHTML = points.map((p, i) => `
+    <div class="point-item">
+      <div>
+        <div class="point-name">${p.name} <span style="color:var(--muted);font-weight:400">Z${p.zone}</span></div>
+        <div class="point-coords">E: ${p.easting.toLocaleString('es')} m</div>
+        <div class="point-coords">N: ${p.northing.toLocaleString('es')} m</div>
+      </div>
+      <span class="point-del" onclick="deletePoint(${i})">✕</span>
+    </div>
+  `).join('');
+}
+
+function deletePoint(i) {
+  points.splice(i, 1);
+  renderPointsList();
+}
+
+function exportPoints() {
+  if (points.length === 0) { showToast('Sin puntos para exportar'); return; }
+  const csv = 'Nombre,Zona_UTM,Este_m,Norte_m,Latitud,Longitud,Fecha\n' +
+    points.map(p => `${p.name},${p.zone},${p.easting},${p.northing},${p.lat},${p.lon},${p.time}`).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'puntos_campo_utm.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── MEASURE ──
+function addMeasurePoint(latlng) {
+  measurePoints.push(latlng);
+  L.circleMarker(latlng, { radius: 5, color: '#ff6b35', fillColor: '#ff6b35', fillOpacity: 1, weight: 2 }).addTo(map);
+
+  if (measurePoints.length > 1) {
+    if (measureLine) map.removeLayer(measureLine);
+    measureLine = L.polyline(measurePoints, { color: '#ff6b35', weight: 2, dashArray: '6,4' }).addTo(map);
+
+    let total = 0;
+    for (let i = 1; i < measurePoints.length; i++) {
+      total += measurePoints[i-1].distanceTo(measurePoints[i]);
+    }
+    const display = total >= 1000 ? (total/1000).toFixed(3) + ' km' : total.toFixed(1) + ' m';
+    document.getElementById('measure-result').textContent = display;
+    document.getElementById('measure-points').textContent = measurePoints.length + ' puntos';
+  }
+}
+
+function clearMeasure() {
+  measurePoints = [];
+  if (measureLine) { map.removeLayer(measureLine); measureLine = null; }
+  document.getElementById('measure-result').textContent = '— m';
+  document.getElementById('measure-points').textContent = 'Toca el mapa para medir';
+}
+
+// ── COMPASS ──
+function onOrientation(e) {
+  if (!compassActive) return;
+  const heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
+  document.getElementById('compass-rose').style.transform = `rotate(${-heading}deg)`;
+  document.getElementById('compass-heading').textContent = Math.round(heading) + '°';
+  document.getElementById('val-heading').textContent = Math.round(heading) + '°';
+}
+
+// ── INFO PANEL TOGGLE ──
+document.getElementById('info-toggle').addEventListener('click', () => {
+  panelOpen = !panelOpen;
+  document.getElementById('info-panel').classList.toggle('collapsed', !panelOpen);
+  document.getElementById('toggle-arrow').textContent = panelOpen ? '▼' : '▲';
+});
+
+// ── UTILS ──
+function setStatus(msg) {
+  document.getElementById('load-status').textContent = msg;
+}
+function showSpinner(v) {
+  document.getElementById('load-spinner').style.display = v ? 'block' : 'none';
+}
+function hideLoadScreen() {
+  document.getElementById('load-screen').style.display = 'none';
+  document.getElementById('load-more-btn').style.display = 'none';
+}
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+// ── BASEMAP SELECTOR ──
+const basemapList = document.getElementById('basemap-list');
+let basemapOpen = false;
+
+Object.keys(basemaps).forEach(name => {
+  const btn = document.createElement('button');
+  btn.textContent = name;
+  btn.style.cssText = `display:block;width:100%;padding:8px 14px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;text-align:left;`;
+  btn.onmouseover = () => btn.style.background = 'rgba(0,229,255,0.1)';
+  btn.onmouseout = () => btn.style.background = 'transparent';
+  btn.onclick = () => {
+    map.removeLayer(activeBasemap);
+    activeBasemap = basemaps[name];
+    activeBasemap.addTo(map);
+    activeBasemap.bringToBack();
+    document.getElementById('basemap-panel').style.display = 'none';
+    document.getElementById('btn-basemap').classList.remove('active');
+    basemapOpen = false;
+    showToast('🗺️ ' + name);
+  };
+  basemapList.appendChild(btn);
+});
+
+document.getElementById('btn-basemap').addEventListener('click', () => {
+  basemapOpen = !basemapOpen;
+  document.getElementById('btn-basemap').classList.toggle('active', basemapOpen);
+  document.getElementById('basemap-panel').style.display = basemapOpen ? 'block' : 'none';
+});
+
+// ── INIT ──
+startGPS();
+</script>
+</body>
+</html>
